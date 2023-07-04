@@ -32,7 +32,6 @@ from ..utils import (
     hash_args,
     normalize_cache_fields,
     code_to_fname,
-    set_log_with_config,
     time_to_slc_point,
     read_period_data,
     get_period_list,
@@ -109,14 +108,16 @@ class CalendarProvider(abc.ABC):
         _, _, si, ei = self.locate_index(start_time, end_time, freq, future)
         return _calendar[si : ei + 1]
 
-    def locate_index(self, start_time, end_time, freq, future=False):
+    def locate_index(
+        self, start_time: Union[pd.Timestamp, str], end_time: Union[pd.Timestamp, str], freq: str, future: bool = False
+    ):
         """Locate the start time index and end time index in a calendar under certain frequency.
 
         Parameters
         ----------
-        start_time : str
+        start_time : pd.Timestamp
             start of the time range.
-        end_time : str
+        end_time : pd.Timestamp
             end of the time range.
         freq : str
             time frequency, available: year/quarter/month/week/day.
@@ -219,7 +220,8 @@ class InstrumentProvider(abc.ABC):
         ----------
         dict: if isinstance(market, str)
             dict of stockpool config.
-            {`market`=>base market name, `filter_pipe`=>list of filters}
+
+            {`market` => base market name, `filter_pipe` => list of filters}
 
             example :
 
@@ -431,9 +433,12 @@ class ExpressionProvider(abc.ABC):
             data of a certain expression
 
             The data has two types of format
+
             1) expression with datetime index
+
             2) expression with integer index
-            - because the datetime is not as good as
+
+                - because the datetime is not as good as
         """
         raise NotImplementedError("Subclass of ExpressionProvider must implement `Expression` method")
 
@@ -603,11 +608,7 @@ class DatasetProvider(abc.ABC):
         """
         # FIXME: Windows OS or MacOS using spawn: https://docs.python.org/3.8/library/multiprocessing.html?highlight=spawn#contexts-and-start-methods
         # NOTE: This place is compatible with windows, windows multi-process is spawn
-        if not C.registered:
-            C.set_conf_from_C(g_config)
-            if C.logging_config:
-                set_log_with_config(C.logging_config)
-            C.register()
+        C.register_from_C(g_config)
 
         obj = dict()
         for field in column_names:
@@ -782,7 +783,7 @@ class LocalPITProvider(PITProvider):
         index_path = C.dpm.get_data_uri() / "financial" / instrument.lower() / f"{field}.index"
         data_path = C.dpm.get_data_uri() / "financial" / instrument.lower() / f"{field}.data"
         if not (index_path.exists() and data_path.exists()):
-            raise FileNotFoundError("No file is found. Raise exception and  ")
+            raise FileNotFoundError("No file is found.")
         # NOTE: The most significant performance loss is here.
         # Does the acceleration that makes the program complicated really matters?
         # - It makes parameters of the interface complicate
@@ -796,14 +797,14 @@ class LocalPITProvider(PITProvider):
         cur_time_int = int(cur_time.year) * 10000 + int(cur_time.month) * 100 + int(cur_time.day)
         loc = np.searchsorted(data["date"], cur_time_int, side="right")
         if loc <= 0:
-            return pd.Series()
+            return pd.Series(dtype=C.pit_record_type["value"])
         last_period = data["period"][:loc].max()  # return the latest quarter
         first_period = data["period"][:loc].min()
         period_list = get_period_list(first_period, last_period, quarterly)
         if period is not None:
             # NOTE: `period` has higher priority than `start_index` & `end_index`
             if period not in period_list:
-                return pd.Series()
+                return pd.Series(dtype=C.pit_record_type["value"])
             else:
                 period_list = [period]
         else:
@@ -867,7 +868,7 @@ class LocalExpressionProvider(ExpressionProvider):
         # Ensure that each column type is consistent
         # FIXME:
         # 1) The stock data is currently float. If there is other types of data, this part needs to be re-implemented.
-        # 2) The the precision should be configurable
+        # 2) The precision should be configurable
         try:
             series = series.astype(np.float32)
         except ValueError:
@@ -893,6 +894,7 @@ class LocalDatasetProvider(DatasetProvider):
             Will we align the time to calendar
             the frequency is flexible in some dataset and can't be aligned.
             For the data with fixed frequency with a shared calendar, the align data to the calendar will provides following benefits
+
             - Align queries to the same parameters, so the cache can be shared.
         """
         super().__init__()
@@ -1170,10 +1172,11 @@ class BaseProvider:
         inst_processors=[],
     ):
         """
-        Parameters:
-        -----------
+        Parameters
+        ----------
         disk_cache : int
             whether to skip(0)/use(1)/replace(2) disk_cache
+
 
         This function will try to use cache method which has a keyword `disk_cache`,
         and will use provider method if a type error is raised because the DatasetD instance
@@ -1224,10 +1227,12 @@ class ClientProvider(BaseProvider):
     """Client Provider
 
     Requesting data from server as a client. Can propose requests:
+
         - Calendar : Directly respond a list of calendars
         - Instruments (without filter): Directly respond a list/dict of instruments
         - Instruments (with filters):  Respond a list/dict of instruments
         - Features : Respond a cache uri
+
     The general workflow is described as follows:
     When the user use client provider to propose a request, the client provider will connect the server and send the request. The client will start to wait for the response. The response will be made instantly indicating whether the cache is available. The waiting procedure will terminate only when the client get the response saying `feature_available` is true.
     `BUG` : Everytime we make request for certain data we need to connect to the server, wait for the response and disconnect from it. We can't make a sequence of requests within one connection. You can refer to https://python-socketio.readthedocs.io/en/latest/client.html for documentation of python-socketIO client.

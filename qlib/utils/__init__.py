@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# TODO: this utils covers too much utilities, please seperat it into sub modules
 
 from __future__ import division
 from __future__ import print_function
@@ -11,6 +12,7 @@ import re
 import sys
 import copy
 import json
+from qlib.typehint import InstConf
 import yaml
 import redis
 import bisect
@@ -42,7 +44,7 @@ is_deprecated_lexsorted_pandas = version.parse(pd.__version__) > version.parse("
 #################### Server ####################
 def get_redis_connection():
     """get redis connection instance."""
-    return redis.StrictRedis(host=C.redis_host, port=C.redis_port, db=C.redis_task_db)
+    return redis.StrictRedis(host=C.redis_host, port=C.redis_port, db=C.redis_task_db, password=C.redis_password)
 
 
 #################### Data ####################
@@ -223,7 +225,7 @@ def requests_with_retry(url, retry=5, **kwargs):
         except Exception as e:
             log.warning("exception encountered {}".format(e))
             continue
-    raise Exception("ERROR: requests failed!")
+    raise TimeoutError("ERROR: requests failed!")
 
 
 #################### Parse ####################
@@ -291,7 +293,11 @@ def get_module_by_module_path(module_path: Union[str, ModuleType]):
 
     :param module_path:
     :return:
+    :raises: ModuleNotFoundError
     """
+    if module_path is None:
+        raise ModuleNotFoundError("None is passed in as parameters as module_path")
+
     if isinstance(module_path, ModuleType):
         module = module_path
     else:
@@ -324,7 +330,7 @@ def split_module_path(module_path: str) -> Tuple[str, str]:
     return m_path, cls
 
 
-def get_callable_kwargs(config: Union[dict, str], default_module: Union[str, ModuleType] = None) -> (type, dict):
+def get_callable_kwargs(config: InstConf, default_module: Union[str, ModuleType] = None) -> (type, dict):
     """
     extract class/func and kwargs from config info
 
@@ -343,6 +349,10 @@ def get_callable_kwargs(config: Union[dict, str], default_module: Union[str, Mod
     -------
     (type, dict):
         the class/func object and it's arguments.
+
+    Raises
+    ------
+        ModuleNotFoundError
     """
     if isinstance(config, dict):
         key = "class" if "class" in config else "func"
@@ -376,7 +386,7 @@ get_cls_kwargs = get_callable_kwargs  # NOTE: this is for compatibility for the 
 
 
 def init_instance_by_config(
-    config: Union[str, dict, object],
+    config: InstConf,
     default_module=None,
     accept_types: Union[type, Tuple[type]] = (),
     try_kwargs: Dict = {},
@@ -387,28 +397,8 @@ def init_instance_by_config(
 
     Parameters
     ----------
-    config : Union[str, dict, object]
-        dict example.
-            case 1)
-            {
-                'class': 'ClassName',
-                'kwargs': dict, #  It is optional. {} will be used if not given
-                'model_path': path, # It is optional if module is given
-            }
-            case 2)
-            {
-                'class': <The class it self>,
-                'kwargs': dict, #  It is optional. {} will be used if not given
-            }
-        str example.
-            1) specify a pickle object
-                - path like 'file:///<path to pickle file>/obj.pkl'
-            2) specify a class name
-                - "ClassName":  getattr(module, "ClassName")() will be used.
-            3) specify module path with class name
-                - "a.b.c.ClassName" getattr(<a.b.c.module>, "ClassName")() will be used.
-        object example:
-            instance of accept_types
+    config : InstConf
+
     default_module : Python module
         Optional. It should be a python module.
         NOTE: the "module_path" will be override by `module` arguments
@@ -432,11 +422,16 @@ def init_instance_by_config(
     if isinstance(config, accept_types):
         return config
 
-    if isinstance(config, str):
-        # path like 'file:///<path to pickle file>/obj.pkl'
-        pr = urlparse(config)
-        if pr.scheme == "file":
-            with open(os.path.join(pr.netloc, pr.path), "rb") as f:
+    if isinstance(config, (str, Path)):
+        if isinstance(config, str):
+            # path like 'file:///<path to pickle file>/obj.pkl'
+            pr = urlparse(config)
+            if pr.scheme == "file":
+                pr_path = os.path.join(pr.netloc, pr.path) if bool(pr.path) else pr.netloc
+                with open(os.path.normpath(pr_path), "rb") as f:
+                    return pickle.load(f)
+        else:
+            with config.open("rb") as f:
                 return pickle.load(f)
 
     klass, cls_kwargs = get_callable_kwargs(config, default_module=default_module)
@@ -511,7 +506,7 @@ def remove_fields_space(fields: [list, str, tuple]):
     """
     if isinstance(fields, str):
         return fields.replace(" ", "")
-    return [i.replace(" ", "") for i in fields if isinstance(i, str)]
+    return [i.replace(" ", "") if isinstance(i, str) else str(i) for i in fields]
 
 
 def normalize_cache_fields(fields: [list, tuple]):
@@ -756,7 +751,7 @@ def exists_qlib_data(qlib_dir):
             return False
 
     # check instruments
-    code_names = set(map(lambda x: x.name.lower(), features_dir.iterdir()))
+    code_names = set(map(lambda x: fname_to_code(x.name.lower()), features_dir.iterdir()))
     _instrument = instruments_dir.joinpath("all.txt")
     miss_code = set(pd.read_csv(_instrument, sep="\t", header=None).loc[:, 0].apply(str.lower)) - set(code_names)
     if miss_code and any(map(lambda x: "sht" not in x, miss_code)):
@@ -942,6 +937,10 @@ def auto_filter_kwargs(func: Callable, warning=True) -> Callable:
 
     The decrated function will ignore and give warning when the parameter is not acceptable
 
+    For example, if you have a function `f` which may optionally consume the keywards `bar`.
+    then you can call it by `auto_filter_kwargs(f)(bar=3)`, which will automatically filter out
+    `bar` when f does not need bar
+
     Parameters
     ----------
     func : Callable
@@ -1056,4 +1055,5 @@ __all__ = [
     "unpack_archive_with_buffer",
     "get_tmp_file_with_buffer",
     "set_log_with_config",
+    "init_instance_by_config",
 ]

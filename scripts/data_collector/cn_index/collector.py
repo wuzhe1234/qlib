@@ -4,7 +4,7 @@
 import re
 import abc
 import sys
-import importlib
+import datetime
 from io import BytesIO
 from typing import List, Iterable
 from pathlib import Path
@@ -90,7 +90,6 @@ class CSIIndex(IndexBase):
         raise NotImplementedError("rewrite index_code")
 
     @property
-    @abc.abstractmethod
     def html_table_index(self) -> int:
         """Which table of changes in html
 
@@ -98,7 +97,7 @@ class CSIIndex(IndexBase):
         CSI100: 1
         :return:
         """
-        raise NotImplementedError()
+        raise NotImplementedError("rewrite html_table_index")
 
     def format_datetime(self, inst_df: pd.DataFrame) -> pd.DataFrame:
         """formatting the datetime in an instrument
@@ -158,7 +157,7 @@ class CSIIndex(IndexBase):
             symbol
         """
         symbol = f"{int(symbol):06}"
-        return f"SH{symbol}" if symbol.startswith("60") else f"SZ{symbol}"
+        return f"SH{symbol}" if symbol.startswith("60") or symbol.startswith("688") else f"SZ{symbol}"
 
     def _parse_excel(self, excel_url: str, add_date: pd.Timestamp, remove_date: pd.Timestamp) -> pd.DataFrame:
         content = retry_request(excel_url, exclude_status=[404]).content
@@ -184,7 +183,7 @@ class CSIIndex(IndexBase):
         df = pd.DataFrame()
         _tmp_count = 0
         for _df in pd.read_html(content):
-            if _df.shape[-1] != 4:
+            if _df.shape[-1] != 4 or _df.isnull().loc(0)[0][0]:
                 continue
             _tmp_count += 1
             if self.html_table_index + 1 > _tmp_count:
@@ -212,6 +211,12 @@ class CSIIndex(IndexBase):
 
     def _read_change_from_url(self, url: str) -> pd.DataFrame:
         """read change from url
+        The parameter url is from the _get_change_notices_url method.
+        Determine the stock add_date/remove_date based on the title.
+        The response contains three cases:
+            1.Only excel_url(extract data from excel_url)
+            2.Both the excel_url and the body text(try to extract data from excel_url first, and then try to extract data from body text)
+            3.Only body text(extract data from body text)
 
         Parameters
         ----------
@@ -259,14 +264,18 @@ class CSIIndex(IndexBase):
                     excel_url = excel_url if excel_url.startswith("/") else "/" + excel_url
                     excel_url = f"http://www.csindex.com.cn{excel_url}"
         if excel_url:
-            logger.info(f"get {add_date} changes from excel, title={title}, excel_url={excel_url}")
             try:
+                logger.info(f"get {add_date} changes from the excel, title={title}, excel_url={excel_url}")
                 df = self._parse_excel(excel_url, add_date, remove_date)
             except ValueError:
-                logger.warning(f"error downloading file: {excel_url}, will parse the table from the content")
+                logger.info(
+                    f"get {add_date} changes from the web page, title={title}, url=https://www.csindex.com.cn/#/about/newsDetail?id={url.split('id=')[-1]}"
+                )
                 df = self._parse_table(_text, add_date, remove_date)
         else:
-            logger.info(f"get {add_date} changes from url content, title={title}")
+            logger.info(
+                f"get {add_date} changes from the web page, title={title}, url=https://www.csindex.com.cn/#/about/newsDetail?id={url.split('id=')[-1]}"
+            )
             df = self._parse_table(_text, add_date, remove_date)
         return df
 
@@ -326,11 +335,11 @@ class CSI300Index(CSIIndex):
         return pd.Timestamp("2005-01-01")
 
     @property
-    def html_table_index(self):
-        return 1
+    def html_table_index(self) -> int:
+        return 0
 
 
-class CSI100(CSIIndex):
+class CSI100Index(CSIIndex):
     @property
     def index_code(self):
         return "000903"
@@ -340,11 +349,11 @@ class CSI100(CSIIndex):
         return pd.Timestamp("2006-05-29")
 
     @property
-    def html_table_index(self):
-        return 2
+    def html_table_index(self) -> int:
+        return 1
 
 
-class CSI500(CSIIndex):
+class CSI500Index(CSIIndex):
     @property
     def index_code(self) -> str:
         return "000905"
@@ -352,10 +361,6 @@ class CSI500(CSIIndex):
     @property
     def bench_start_date(self) -> pd.Timestamp:
         return pd.Timestamp("2007-01-15")
-
-    @property
-    def html_table_index(self) -> int:
-        return 0
 
     def get_changes(self) -> pd.DataFrame:
         """get companies changes
@@ -389,7 +394,7 @@ class CSI500(CSIIndex):
                 type: str, value from ["add", "remove"]
         """
         bs.login()
-        today = pd.datetime.now()
+        today = pd.Timestamp.now()
         date_range = pd.DataFrame(pd.date_range(start="2007-01-15", end=today, freq="7D"))[0].dt.date
         ret_list = []
         col = ["date", "symbol", "code_name"]
@@ -405,7 +410,8 @@ class CSI500(CSIIndex):
         bs.logout()
         return pd.concat(ret_list, sort=False)
 
-    def get_data_from_baostock(self, date) -> pd.DataFrame:
+    @staticmethod
+    def get_data_from_baostock(date) -> pd.DataFrame:
         """
         Data source: http://baostock.com/baostock/index.php/%E4%B8%AD%E8%AF%81500%E6%88%90%E5%88%86%E8%82%A1
         Avoid a large number of parallel data acquisition,
@@ -447,13 +453,13 @@ class CSI500(CSIIndex):
                 end_date: pd.Timestamp
         """
         logger.info("get new companies......")
-        today = datetime.date.today()
+        today = pd.Timestamp.now().normalize()
         bs.login()
-        result = self.get_data_from_baostock(today)
+        result = self.get_data_from_baostock(today.strftime("%Y-%m-%d"))
         bs.logout()
         df = result[["date", "symbol"]]
         df.columns = [self.END_DATE_FIELD, self.SYMBOL_FIELD_NAME]
-        df[self.END_DATE_FIELD] = pd.to_datetime(df[self.END_DATE_FIELD].astype(str))
+        df[self.END_DATE_FIELD] = today
         df[self.START_DATE_FIELD] = self.bench_start_date
         logger.info("end of get new companies.")
         return df

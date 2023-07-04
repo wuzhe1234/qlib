@@ -143,7 +143,7 @@ class YahooCollector(BaseCollector):
                 _show_logging_func()
         except Exception as e:
             logger.warning(
-                f"get data error: {symbol}--{start_}--{end_}"
+                f"get data error: {symbol}--{start}--{end}"
                 + "Your data request fails. This may be caused by your firewall (e.g. GFW). Please switch your network if you want to access Yahoo! data"
             )
 
@@ -222,8 +222,8 @@ class YahooCollectorCN1d(YahooCollectorCN):
         # TODO: from MSN
         _format = "%Y%m%d"
         _begin = self.start_datetime.strftime(_format)
-        _end = (self.end_datetime + pd.Timedelta(days=-1)).strftime(_format)
-        for _index_name, _index_code in {"csi300": "000300", "csi100": "000903"}.items():
+        _end = self.end_datetime.strftime(_format)
+        for _index_name, _index_code in {"csi300": "000300", "csi100": "000903", "csi500": "000905"}.items():
             logger.info(f"get bench data: {_index_name}({_index_code})......")
             try:
                 df = pd.DataFrame(
@@ -245,7 +245,7 @@ class YahooCollectorCN1d(YahooCollectorCN):
             _path = self.save_dir.joinpath(f"sh{_index_code}.csv")
             if _path.exists():
                 _old_df = pd.read_csv(_path)
-                df = _old_df.append(df, sort=False)
+                df = pd.concat([_old_df, df], sort=False)
             df.to_csv(_path, index=False)
             time.sleep(5)
 
@@ -317,24 +317,24 @@ class YahooCollectorIN1min(YahooCollectorIN):
 
 class YahooCollectorBR(YahooCollector, ABC):
     def retry(cls):
-        """"
-            The reason to use retry=2 is due to the fact that
-            Yahoo Finance unfortunately does not keep track of some
-            Brazilian stocks. 
-            
-            Therefore, the decorator deco_retry with retry argument
-            set to 5 will keep trying to get the stock data up to 5 times, 
-            which makes the code to download Brazilians stocks very slow. 
-            
-            In future, this may change, but for now 
-            I suggest to leave retry argument to 1 or 2 in 
-            order to improve download speed.
+        """
+        The reason to use retry=2 is due to the fact that
+        Yahoo Finance unfortunately does not keep track of some
+        Brazilian stocks.
 
-            To achieve this goal an abstract attribute (retry)
-            was added into YahooCollectorBR base class
+        Therefore, the decorator deco_retry with retry argument
+        set to 5 will keep trying to get the stock data up to 5 times,
+        which makes the code to download Brazilians stocks very slow.
+
+        In future, this may change, but for now
+        I suggest to leave retry argument to 1 or 2 in
+        order to improve download speed.
+
+        To achieve this goal an abstract attribute (retry)
+        was added into YahooCollectorBR base class
         """
         raise NotImplementedError
-        
+
     def get_instrument_list(self):
         logger.info("get BR stock symbols......")
         symbols = get_br_stock_symbols() + [
@@ -404,7 +404,7 @@ class YahooNormalize(BaseNormalize):
                 .index
             )
         df.sort_index(inplace=True)
-        df.loc[(df["volume"] <= 0) | np.isnan(df["volume"]), set(df.columns) - {symbol_field_name}] = np.nan
+        df.loc[(df["volume"] <= 0) | np.isnan(df["volume"]), list(set(df.columns) - {symbol_field_name})] = np.nan
 
         change_series = YahooNormalize.calc_change(df, last_close)
         # NOTE: The data obtained by Yahoo finance sometimes has exceptions
@@ -817,6 +817,10 @@ class YahooNormalizeUS1d(YahooNormalizeUS, YahooNormalize1d):
     pass
 
 
+class YahooNormalizeUS1dExtend(YahooNormalizeUS, YahooNormalize1dExtend):
+    pass
+
+
 class YahooNormalizeUS1min(YahooNormalizeUS, YahooNormalize1minOffline):
     CALC_PAUSED_NUM = False
 
@@ -1196,7 +1200,7 @@ class Run(BaseRun):
             importlib.import_module(f"data_collector.{_region}_index.collector"), "get_instruments"
         )
         for _index in index_list:
-            get_instruments(str(qlib_data_1d_dir), _index)
+            get_instruments(str(qlib_data_1d_dir), _index, market_index=f"{_region}_index")
 
 
 if __name__ == "__main__":

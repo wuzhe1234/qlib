@@ -7,6 +7,7 @@ from typing import Callable, Union, Tuple, List, Iterator, Optional
 
 import pandas as pd
 
+from qlib.typehint import Literal
 from ...log import get_module_logger, TimeInspector
 from ...utils import init_instance_by_config
 from ...utils.serial import Serializable
@@ -35,7 +36,7 @@ class DataHandler(Serializable):
     Example of the data:
     The multi-index of the columns is optional.
 
-    .. code-block:: python
+    .. code-block:: text
 
                                 feature                                                            label
                                 $close     $volume  Ref($close, 1)  Mean($close, 3)  $high-$low  LABEL0
@@ -48,6 +49,8 @@ class DataHandler(Serializable):
     Tips for improving the performance of datahandler
     - Fetching data with `col_set=CS_RAW` will return the raw data and may avoid pandas from copying the data when calling `loc`
     """
+
+    _data: pd.DataFrame  # underlying data.
 
     def __init__(
         self,
@@ -137,7 +140,7 @@ class DataHandler(Serializable):
         # Setup data.
         # _data may be with multiple column index level. The outer level indicates the feature set name
         with TimeInspector.logt("Loading data"):
-            # make sure the fetch method is based on a index-sorted pd.DataFrame
+            # make sure the fetch method is based on an index-sorted pd.DataFrame
             self._data = lazy_sort_index(self.data_loader.load(self.instruments, self.start_time, self.end_time))
         # TODO: cache
 
@@ -155,18 +158,27 @@ class DataHandler(Serializable):
         """
         fetch data from underlying data source
 
+        Design motivation:
+        - providing a unified interface for underlying data.
+        - Potential to make the interface more friendly.
+        - User can improve performance when fetching data in this extra layer
+
         Parameters
         ----------
         selector : Union[pd.Timestamp, slice, str]
             describe how to select data by index
             It can be categories as following
+
             - fetch single index
             - fetch a range of index
+
                 - a slice range
                 - pd.Index for specific indexes
 
-            Following conflictions may occurs
-            - Does [20200101", "20210101"] mean selecting this slice or these two days?
+            Following conflicts may occur
+
+            - Does ["20200101", "20210101"] mean selecting this slice or these two days?
+
                 - slice have higher priorities
 
         level : Union[str, int]
@@ -178,7 +190,8 @@ class DataHandler(Serializable):
 
                 select a set of meaningful, pd.Index columns.(e.g. features, columns)
 
-                if col_set == CS_RAW:
+                - if col_set == CS_RAW:
+
                     the raw dataset will be returned.
 
             - if isinstance(col_set, List[str]):
@@ -186,8 +199,10 @@ class DataHandler(Serializable):
                 select several sets of meaningful columns, the returned data has multiple levels
 
         proc_func: Callable
+
             - Give a hook for processing data before fetching
             - An example to explain the necessity of the hook:
+
                 - A Dataset learned some processors to process data which is related to data segmentation
                 - It will apply them every time when preparing data.
                 - The learned processor require the dataframe remains the same format when fitting and applying
@@ -222,7 +237,7 @@ class DataHandler(Serializable):
         # This method is extracted for sharing in subclasses
         from .storage import BaseHandlerStorage  # pylint: disable=C0415
 
-        # Following conflictions may occurs
+        # Following conflicts may occur
         # - Does [20200101", "20210101"] mean selecting this slice or these two days?
         # To solve this issue
         #   - slice have higher priorities (except when level is none)
@@ -306,7 +321,7 @@ class DataHandler(Serializable):
         self, periods: int, min_periods: Optional[int] = None, **kwargs
     ) -> Iterator[Tuple[pd.Timestamp, pd.DataFrame]]:
         """
-        get a iterator of sliced data with given periods
+        get an iterator of sliced data with given periods
 
         Args:
             periods (int): number of periods.
@@ -321,30 +336,49 @@ class DataHandler(Serializable):
             yield cur_date, self.fetch(selector, **kwargs)
 
 
+DATA_KEY_TYPE = Literal["raw", "infer", "learn"]
+
+
 class DataHandlerLP(DataHandler):
     """
     DataHandler with **(L)earnable (P)rocessor**
 
     This handler will produce three pieces of data in pd.DataFrame format.
+
     - DK_R / self._data: the raw data loaded from the loader
     - DK_I / self._infer: the data processed for inference
     - DK_L / self._learn: the data processed for learning model.
 
     The motivation of using different processor workflows for learning and inference
     Here are some examples.
+
     - The instrument universe for learning and inference may be different.
     - The processing of some samples may rely on label (for example, some samples hit the limit may need extra processing or be dropped).
-        These processors only apply to the learning phase.
 
-    Tips to improve the performance of data handler
+        - These processors only apply to the learning phase.
+
+    Tips for data handler
+
     - To reduce the memory cost
+
         - `drop_raw=True`: this will modify the data inplace on raw data;
+
+    - Please note processed data like `self._infer` or `self._learn` are concepts different from `segments` in Qlib's `Dataset` like "train" and "test"
+
+        - Processed data like `self._infer` or `self._learn` are underlying data processed with different processors
+        - `segments` in Qlib's `Dataset` like "train" and "test" are simply the time segmentations when querying data("train" are often before "test" in time-series).
+        - For example, you can query `data._infer` processed by `infer_processors` in the "train" time segmentation.
     """
 
+    # based on `self._data`, _infer and _learn are genrated after processors
+    _infer: pd.DataFrame  # data for inference
+    _learn: pd.DataFrame  # data for learning models
+
     # data key
-    DK_R = "raw"
-    DK_I = "infer"
-    DK_L = "learn"
+    DK_R: DATA_KEY_TYPE = "raw"
+    DK_I: DATA_KEY_TYPE = "infer"
+    DK_L: DATA_KEY_TYPE = "learn"
+    # map data_key to attribute name
     ATTR_MAP = {DK_R: "_data", DK_I: "_infer", DK_L: "_learn"}
 
     # process type
@@ -400,13 +434,13 @@ class DataHandlerLP(DataHandler):
         process_type: str
             PTYPE_I = 'independent'
 
-            - self._infer will processed by infer_processors
+            - self._infer will be processed by infer_processors
 
             - self._learn will be processed by learn_processors
 
             PTYPE_A = 'append'
 
-            - self._infer will processed by infer_processors
+            - self._infer will be processed by infer_processors
 
             - self._learn will be processed by infer_processors + learn_processors
 
@@ -482,12 +516,18 @@ class DataHandlerLP(DataHandler):
         Notation: (data)  [processor]
 
         # data processing flow of self.process_type == DataHandlerLP.PTYPE_I
-        (self._data)-[shared_processors]-(_shared_df)-[learn_processors]-(_learn_df)
-                                               \
-                                                -[infer_processors]-(_infer_df)
+
+        .. code-block:: text
+
+            (self._data)-[shared_processors]-(_shared_df)-[learn_processors]-(_learn_df)
+                                                   \\
+                                                    -[infer_processors]-(_infer_df)
 
         # data processing flow of self.process_type == DataHandlerLP.PTYPE_A
-        (self._data)-[shared_processors]-(_shared_df)-[infer_processors]-(_infer_df)-[learn_processors]-(_learn_df)
+
+        .. code-block:: text
+
+            (self._data)-[shared_processors]-(_shared_df)-[infer_processors]-(_infer_df)-[learn_processors]-(_learn_df)
 
         Parameters
         ----------
@@ -515,7 +555,7 @@ class DataHandlerLP(DataHandler):
         # data for learning
         # 1) assign
         if self.process_type == DataHandlerLP.PTYPE_I:
-            _learn_df = self._data
+            _learn_df = _shared_df
         elif self.process_type == DataHandlerLP.PTYPE_A:
             # based on `infer_df` and append the processor
             _learn_df = _infer_df
@@ -582,7 +622,7 @@ class DataHandlerLP(DataHandler):
 
         # TODO: Be able to cache handler data. Save the memory for data processing
 
-    def _get_df_by_key(self, data_key: str = DK_I) -> pd.DataFrame:
+    def _get_df_by_key(self, data_key: DATA_KEY_TYPE = DK_I) -> pd.DataFrame:
         if data_key == self.DK_R and self.drop_raw:
             raise AttributeError(
                 "DataHandlerLP has not attribute _data, please set drop_raw = False if you want to use raw data"
@@ -595,7 +635,7 @@ class DataHandlerLP(DataHandler):
         selector: Union[pd.Timestamp, slice, str] = slice(None, None),
         level: Union[str, int] = "datetime",
         col_set=DataHandler.CS_ALL,
-        data_key: str = DK_I,
+        data_key: DATA_KEY_TYPE = DK_I,
         squeeze: bool = False,
         proc_func: Callable = None,
     ) -> pd.DataFrame:
@@ -629,7 +669,7 @@ class DataHandlerLP(DataHandler):
             proc_func=proc_func,
         )
 
-    def get_cols(self, col_set=DataHandler.CS_ALL, data_key: str = DK_I) -> list:
+    def get_cols(self, col_set=DataHandler.CS_ALL, data_key: DATA_KEY_TYPE = DK_I) -> list:
         """
         get the column names
 
@@ -637,7 +677,7 @@ class DataHandlerLP(DataHandler):
         ----------
         col_set : str
             select a set of meaningful columns.(e.g. features, columns).
-        data_key : str
+        data_key : DATA_KEY_TYPE
             the data to fetch:  DK_*.
 
         Returns
@@ -653,7 +693,9 @@ class DataHandlerLP(DataHandler):
     def cast(cls, handler: "DataHandlerLP") -> "DataHandlerLP":
         """
         Motivation
-        - A user create a datahandler in his customized package. Then he want to share the processed handler to other users without introduce the package dependency and complicated data processing logic.
+
+        - A user creates a datahandler in his customized package. Then he wants to share the processed handler to
+          other users without introduce the package dependency and complicated data processing logic.
         - This class make it possible by casting the class to DataHandlerLP and only keep the processed data
 
         Parameters
@@ -667,7 +709,7 @@ class DataHandlerLP(DataHandler):
             the converted processed data
         """
         new_hd: DataHandlerLP = object.__new__(DataHandlerLP)
-        new_hd.from_cast = True  # add a mark for the casted instance
+        new_hd.from_cast = True  # add a mark for the cast instance
 
         for key in list(DataHandlerLP.ATTR_MAP.values()) + [
             "instruments",
@@ -678,3 +720,26 @@ class DataHandlerLP(DataHandler):
         ]:
             setattr(new_hd, key, getattr(handler, key, None))
         return new_hd
+
+    @classmethod
+    def from_df(cls, df: pd.DataFrame) -> "DataHandlerLP":
+        """
+        Motivation:
+        - When user want to get a quick data handler.
+
+        The created data handler will have only one shared Dataframe without processors.
+        After creating the handler, user may often want to dump the handler for reuse
+        Here is a typical use case
+
+        .. code-block:: python
+
+            from qlib.data.dataset import DataHandlerLP
+            dh = DataHandlerLP.from_df(df)
+            dh.to_pickle(fname, dump_all=True)
+
+        TODO:
+        - The StaticDataLoader is quite slow. It don't have to copy the data again...
+
+        """
+        loader = data_loader_module.StaticDataLoader(df)
+        return cls(data_loader=loader)

@@ -1,6 +1,6 @@
-============================================================
+======================
 ``Qlib`` Documentation
-============================================================
+======================
 
 ``Qlib`` is an AI-oriented quantitative investment platform, which aims to realize the potential, empower the research, and create the value of AI technologies in quantitative investment.
 
@@ -24,16 +24,16 @@ Document Structure
 .. toctree::
    :maxdepth: 3
    :caption: FIRST STEPS:
-   
+
    Installation <start/installation.rst>
    Initialization <start/initialization.rst>
    Data Retrieval <start/getdata.rst>
    Custom Model Integration <start/integration.rst>
-   
+
 
 .. toctree::
    :maxdepth: 3
-   :caption: COMPONENTS:
+   :caption: MAIN COMPONENTS:
 
    Workflow: Workflow Management <component/workflow.rst>
    Data Layer: Data Framework & Usage <component/data.rst>
@@ -44,16 +44,23 @@ Document Structure
    Qlib Recorder: Experiment Management <component/recorder.rst>
    Analysis: Evaluation & Results Analysis <component/report.rst>
    Online Serving: Online Management & Strategy & Tool <component/online.rst>
+   Reinforcement Learning <component/rl/toctree>
 
 .. toctree::
    :maxdepth: 3
-   :caption: ADVANCED TOPICS:
-   
+   :caption: OTHER COMPONENTS/FEATURES/TOPICS:
+
    Building Formulaic Alphas <advanced/alpha.rst>
    Online & Offline mode <advanced/server.rst>
    Serialization <advanced/serial.rst>
    Task Management <advanced/task_management.rst>
    Point-In-Time database <advanced/PIT.rst>
+
+.. toctree::
+   :maxdepth: 3
+   :caption: FOR DEVELOPERS:
+
+   Code Standard & Development Guidance <developer/code_standard_and_dev_guide.rst>
 
 .. toctree::
    :maxdepth: 3

@@ -26,6 +26,13 @@ logger = get_module_logger("Evaluate")
 
 def risk_analysis(r, N: int = None, freq: str = "day"):
     """Risk Analysis
+    NOTE:
+    The calculation of annulaized return is different from the definition of annualized return.
+    It is implemented by design.
+    Qlib tries to cumulated returns by summation instead of production to avoid the cumulated curve being skewed exponentially.
+    All the calculation of annualized returns follows this principle in Qlib.
+
+    TODO: add a parameter to enable calculating metrics with production accumulation of return.
 
     Parameters
     ----------
@@ -89,9 +96,11 @@ def indicator_analysis(df, method="mean"):
         index: Index(datetime)
     method : str, optional
         statistics method of pa/ffr, by default "mean"
+
         - if method is 'mean', count the mean statistical value of each trade indicator
         - if method is 'amount_weighted', count the deal_amount weighted mean statistical value of each trade indicator
         - if method is 'value_weighted', count the value weighted mean statistical value of each trade indicator
+
         Note: statistics method of pos is always "mean"
 
     Returns
@@ -147,6 +156,7 @@ def backtest_daily(
         E.g.
 
         .. code-block:: python
+
             # dict
             strategy = {
                 "class": "TopkDropoutStrategy",
@@ -173,16 +183,19 @@ def backtest_daily(
             # 3) specify module path with class name
             #     - "a.b.c.ClassName" getattr(<a.b.c.module>, "ClassName")() will be used.
 
-
     executor : Union[str, dict, BaseExecutor]
         for initializing the outermost executor.
     benchmark: str
         the benchmark for reporting.
     account : Union[float, int, Position]
         information for describing how to creating the account
+
         For `float` or `int`:
+
             Using Account with only initial cash
+
         For `Position`:
+
             Using Account with a Position
     exchange_kwargs : dict
         the kwargs for initializing Exchange
@@ -276,8 +289,8 @@ def long_short_backtest(
                        NOTE: This will be faster with offline qlib.
     :return:            The result of backtest, it is represented by a dict.
                         { "long": long_returns(excess),
-                          "short": short_returns(excess),
-                          "long_short": long_short_returns}
+                        "short": short_returns(excess),
+                        "long_short": long_short_returns}
     """
     if get_level_index(pred, level="datetime") == 1:
         pred = pred.swaplevel().sort_index()
@@ -332,7 +345,7 @@ def long_short_backtest(
         for stock in long_stocks:
             if not trade_exchange.is_stock_tradable(stock_id=stock, trade_date=date):
                 continue
-            profit = trade_exchange.get_quote_info(stock_id=stock, trade_date=date)[profit_str]
+            profit = trade_exchange.get_quote_info(stock_id=stock, start_time=date, end_time=date, field=profit_str)
             if np.isnan(profit):
                 long_profit.append(0)
             else:
@@ -341,17 +354,17 @@ def long_short_backtest(
         for stock in short_stocks:
             if not trade_exchange.is_stock_tradable(stock_id=stock, trade_date=date):
                 continue
-            profit = trade_exchange.get_quote_info(stock_id=stock, trade_date=date)[profit_str]
+            profit = trade_exchange.get_quote_info(stock_id=stock, start_time=date, end_time=date, field=profit_str)
             if np.isnan(profit):
                 short_profit.append(0)
             else:
-                short_profit.append(-profit)
+                short_profit.append(profit * -1)
 
         for stock in list(score.loc(axis=0)[pdate, :].index.get_level_values(level=0)):
             # exclude the suspend stock
             if trade_exchange.check_stock_suspended(stock_id=stock, trade_date=date):
                 continue
-            profit = trade_exchange.get_quote_info(stock_id=stock, trade_date=date)[profit_str]
+            profit = trade_exchange.get_quote_info(stock_id=stock, start_time=date, end_time=date, field=profit_str)
             if np.isnan(profit):
                 all_profit.append(0)
             else:

@@ -39,6 +39,7 @@ def parse_position(position: dict = None) -> pd.DataFrame:
 
     result_df = pd.DataFrame()
     for _trading_date, _value in position.items():
+        _value = _value.position
         # pd_date type: pd.Timestamp
         _cash = _value.pop("cash")
         for _item in ["now_account_value"]:
@@ -68,9 +69,9 @@ def parse_position(position: dict = None) -> pd.DataFrame:
             if not _trading_day_sell_df.empty:
                 _trading_day_sell_df["status"] = -1
                 _trading_day_sell_df["date"] = _trading_date
-                _trading_day_df = _trading_day_df.append(_trading_day_sell_df, sort=False)
+                _trading_day_df = pd.concat([_trading_day_df, _trading_day_sell_df], sort=False)
 
-        result_df = result_df.append(_trading_day_df, sort=True)
+        result_df = pd.concat([result_df, _trading_day_df], sort=True)
 
         previous_data = dict(
             date=_trading_date,

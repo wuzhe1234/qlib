@@ -10,6 +10,9 @@ from joblib._parallel_backends import MultiprocessingBackend
 import pandas as pd
 
 from queue import Queue
+import concurrent
+
+from qlib.config import C, QlibConfig
 
 
 class ParallelExt(Parallel):
@@ -21,7 +24,7 @@ class ParallelExt(Parallel):
 
 
 def datetime_groupby_apply(
-    df, apply_func: Union[Callable, Text], axis=0, level="datetime", resample_rule="M", n_jobs=-1, skip_group=False
+    df, apply_func: Union[Callable, Text], axis=0, level="datetime", resample_rule="M", n_jobs=-1
 ):
     """datetime_groupby_apply
     This function will apply the `apply_func` on the datetime level index.
@@ -113,7 +116,7 @@ class AsyncCaller:
 # The code are for implementing following workflow
 # - Construct complex data structure nested with delayed joblib tasks
 #      - For example,  {"job": [<delayed_joblib_task>,  {"1": <delayed_joblib_task>}]}
-# - executing all the tasks and replace all the <deplayed_joblib_task> with its return value
+# - executing all the tasks and replace all the <delayed_joblib_task> with its return value
 
 # This will make it easier to convert some existing code to a parallel one
 
@@ -157,7 +160,7 @@ class DelayedDict(DelayedTask):
     It is designed for following feature:
     Converting following existing code to parallel
     - constructing a dict
-    - key can be get instantly
+    - key can be gotten instantly
     - computation of values tasks a lot of time.
         - AND ALL the values are calculated in a SINGLE function
     """
@@ -273,3 +276,40 @@ def complex_parallel(paral: Parallel, complex_iter):
         dt.set_res(res)
     complex_iter = _recover_dt(complex_iter)
     return complex_iter
+
+
+class call_in_subproc:
+    """
+    When we repeatedly run functions, it is hard to avoid memory leakage.
+    So we run it in the subprocess to ensure it is OK.
+
+    NOTE: Because local object can't be pickled. So we can't implement it via closure.
+          We have to implement it via callable Class
+    """
+
+    def __init__(self, func: Callable, qlib_config: QlibConfig = None):
+        """
+        Parameters
+        ----------
+        func : Callable
+            the function to be wrapped
+
+        qlib_config : QlibConfig
+            Qlib config for initialization in subprocess
+
+        Returns
+        -------
+        Callable
+        """
+        self.func = func
+        self.qlib_config = qlib_config
+
+    def _func_mod(self, *args, **kwargs):
+        """Modify the initial function by adding Qlib initialization"""
+        if self.qlib_config is not None:
+            C.register_from_C(self.qlib_config)
+        return self.func(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+            return executor.submit(self._func_mod, *args, **kwargs).result()

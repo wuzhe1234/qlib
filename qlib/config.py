@@ -75,6 +75,18 @@ class Config:
     def set_conf_from_C(self, config_c):
         self.update(**config_c.__dict__["_config"])
 
+    @staticmethod
+    def register_from_C(config, skip_register=True):
+        from .utils import set_log_with_config  # pylint: disable=C0415
+
+        if C.registered and skip_register:
+            return
+
+        C.set_conf_from_C(config)
+        if C.logging_config:
+            set_log_with_config(C.logging_config)
+        C.register()
+
 
 # pickle.dump protocol version: https://docs.python.org/3/library/pickle.html#data-stream-format
 PROTOCOL_VERSION = 4
@@ -102,7 +114,7 @@ _default_config = {
     #   "~/.qlib/stock_data/cn_data"
     #   # dict
     #   {"day": "~/.qlib/stock_data/cn_data", "1min": "~/.qlib/stock_data/cn_data_1min"}
-    # NOTE: provider_uri priority：
+    # NOTE: provider_uri priority:
     #   1. backend_config: backend_obj["kwargs"]["provider_uri"]
     #   2. backend_config: backend_obj["kwargs"]["provider_uri_map"]
     #   3. qlib.init: provider_uri
@@ -135,6 +147,7 @@ _default_config = {
     "redis_host": "127.0.0.1",
     "redis_port": 6379,
     "redis_task_db": 1,
+    "redis_password": None,
     # This value can be reset via qlib.init
     "logging_level": logging.INFO,
     # Global configuration of qlib log
@@ -161,6 +174,9 @@ _default_config = {
             }
         },
         "loggers": {"qlib": {"level": logging.DEBUG, "handlers": ["console"]}},
+        # To let qlib work with other packages, we shouldn't disable existing loggers.
+        # Note that this param is default to True according to the documentation of logging.
+        "disable_existing_loggers": False,
     },
     # Default config for experiment manager
     "exp_manager": {
@@ -188,7 +204,7 @@ _default_config = {
         "task_url": "mongodb://localhost:27017/",
         "task_db_name": "default_task_db",
     },
-    # Shift minute for highfreq minite data, used in backtest
+    # Shift minute for highfreq minute data, used in backtest
     # if min_data_shift == 0, use default market time [9:30, 11:29, 1:00, 2:59]
     # if min_data_shift != 0, use shifted market time [9:30, 11:29, 1:00, 2:59] - shift*minute
     "min_data_shift": 0,
@@ -397,8 +413,7 @@ class QlibConfig(Config):
         if _logging_config:
             set_log_with_config(_logging_config)
 
-        # FIXME: this logger ignored the level in config
-        logger = get_module_logger("Initialization", level=logging.INFO)
+        logger = get_module_logger("Initialization", kwargs.get("logging_level", self.logging_level))
         logger.info(f"default_conf: {default_conf}.")
 
         self.set_mode(default_conf)

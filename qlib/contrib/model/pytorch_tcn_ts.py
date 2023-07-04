@@ -30,7 +30,7 @@ class TCN(Model):
     d_feat : int
         input dimension for each time step
     metric: str
-        the evaluate metric used in early stop
+        the evaluation metric used in early stop
     optimizer : str
         optimizer name
     GPU : str
@@ -168,7 +168,8 @@ class TCN(Model):
         self.TCN_model.train()
 
         for data in data_loader:
-            feature = data[:, :, 0:-1].to(self.device)
+            data = torch.transpose(data, 1, 2)
+            feature = data[:, 0:-1, :].to(self.device)
             label = data[:, -1, -1].to(self.device)
 
             pred = self.TCN_model(feature.float())
@@ -187,8 +188,8 @@ class TCN(Model):
         losses = []
 
         for data in data_loader:
-
-            feature = data[:, :, 0:-1].to(self.device)
+            data = torch.transpose(data, 1, 2)
+            feature = data[:, 0:-1, :].to(self.device)
             # feature[torch.isnan(feature)] = 0
             label = data[:, -1, -1].to(self.device)
 

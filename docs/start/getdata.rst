@@ -1,18 +1,18 @@
 .. _getdata:
 
-=============================
+==============
 Data Retrieval
-=============================
+==============
 
 .. currentmodule:: qlib
 
 Introduction
-====================
+============
 
 Users can get stock data with ``Qlib``. The following examples demonstrate the basic user interface.
 
 Examples
-====================
+========
 
 
 ``QLib`` Initialization:
@@ -30,7 +30,7 @@ If users followed steps in `initialization <initialization.html>`_ and downloade
 Load trading calendar with given time range and frequency:
 
 .. code-block:: python
-		
+
    >> from qlib.data import D
    >> D.calendar(start_time='2010-01-01', end_time='2017-12-31', freq='day')[:2]
    [Timestamp('2010-01-04 00:00:00'), Timestamp('2010-01-05 00:00:00')]
@@ -46,7 +46,7 @@ Parse a given market name into a stock pool config:
 Load instruments of certain stock pool in the given time range:
 
 .. code-block:: python
-		
+
    >> from qlib.data import D
    >> instruments = D.instruments(market='csi300')
    >> D.list_instruments(instruments=instruments, start_time='2010-01-01', end_time='2017-12-31', as_list=True)[:6]
@@ -79,19 +79,18 @@ For more details about filter, please refer `Filter API <../component/data.html>
 Load features of certain instruments in a given time range:
 
 .. code-block:: python
-		
+
    >> from qlib.data import D
    >> instruments = ['SH600000']
    >> fields = ['$close', '$volume', 'Ref($close, 1)', 'Mean($close, 3)', '$high-$low']
-   >> D.features(instruments, fields, start_time='2010-01-01', end_time='2017-12-31', freq='day').head()
-                              
-                              $close     $volume  Ref($close, 1)  Mean($close, 3)  $high-$low
-      instrument  datetime                                                                      
-      SH600000    2010-01-04  86.778313  16162960.0       88.825928        88.061483    2.907631
-                  2010-01-05  87.433578  28117442.0       86.778313        87.679273    3.235252
-                  2010-01-06  85.713585  23632884.0       87.433578        86.641825    1.720009
-                  2010-01-07  83.788803  20813402.0       85.713585        85.645322    3.030487
-                  2010-01-08  84.730675  16044853.0       83.788803        84.744354    2.047623
+   >> D.features(instruments, fields, start_time='2010-01-01', end_time='2017-12-31', freq='day').head().to_string()
+   '                           $close     $volume  Ref($close, 1)  Mean($close, 3)  $high-$low
+   ... instrument  datetime
+   ... SH600000    2010-01-04  86.778313  16162960.0       88.825928        88.061483    2.907631
+   ...             2010-01-05  87.433578  28117442.0       86.778313        87.679273    3.235252
+   ...             2010-01-06  85.713585  23632884.0       87.433578        86.641825    1.720009
+   ...             2010-01-07  83.788803  20813402.0       85.713585        85.645322    3.030487
+   ...             2010-01-08  84.730675  16044853.0       83.788803        84.744354    2.047623'
 
 Load features of certain stock pool in a given time range:
 
@@ -105,15 +104,14 @@ Load features of certain stock pool in a given time range:
    >> expressionDFilter = ExpressionDFilter(rule_expression='$close>Ref($close,1)')
    >> instruments = D.instruments(market='csi300', filter_pipe=[nameDFilter, expressionDFilter])
    >> fields = ['$close', '$volume', 'Ref($close, 1)', 'Mean($close, 3)', '$high-$low']
-   >> D.features(instruments, fields, start_time='2010-01-01', end_time='2017-12-31', freq='day').head()
-
-                                 $close        $volume  Ref($close, 1)  Mean($close, 3)  $high-$low
-      instrument  datetime                                                                           
-      SH600655    2010-01-04  2699.567383  158193.328125     2619.070312      2626.097738  124.580566
-                  2010-01-08  2612.359619   77501.406250     2584.567627      2623.220133   83.373047
-                  2010-01-11  2712.982422  160852.390625     2612.359619      2636.636556  146.621582
-                  2010-01-12  2788.688232  164587.937500     2712.982422      2704.676758  128.413818
-                  2010-01-13  2790.604004  145460.453125     2788.688232      2764.091553  128.413818
+   >> D.features(instruments, fields, start_time='2010-01-01', end_time='2017-12-31', freq='day').head().to_string()
+   '                              $close        $volume  Ref($close, 1)  Mean($close, 3)  $high-$low
+   ... instrument  datetime
+   ... SH600655    2010-01-04  2699.567383  158193.328125     2619.070312      2626.097738  124.580566
+   ...             2010-01-08  2612.359619   77501.406250     2584.567627      2623.220133   83.373047
+   ...             2010-01-11  2712.982422  160852.390625     2612.359619      2636.636556  146.621582
+   ...             2010-01-12  2788.688232  164587.937500     2712.982422      2704.676758  128.413818
+   ...             2010-01-13  2790.604004  145460.453125     2788.688232      2764.091553  128.413818'
 
 
 For more details about features, please refer `Feature API <../component/data.html>`_.
@@ -127,7 +125,7 @@ For example, it looks quite long and complicated:
 .. code-block:: python
 
    >> from qlib.data import D
-   >> data = D.features(["sh600519"], ["(($high / $close) + ($open / $close)) * (($high / $close) + ($open / $close)) / ($high / $close) + ($open / $close)"], start_time="20200101")
+   >> data = D.features(["sh600519"], ["(($high / $close) + ($open / $close)) * (($high / $close) + ($open / $close)) / (($high / $close) + ($open / $close))"], start_time="20200101")
 
 
 But using string is not the only way to implement the expression. You can also implement expression by code.
@@ -147,5 +145,5 @@ Here is an exmaple which does the same thing as above examples.
 
 
 API
-====================
+===
 To know more about how to use the Data, go to API Reference: `Data API <../reference/api.html#data>`_
